@@ -1,0 +1,178 @@
+---
+title: "Untitled"
+author: "Josh Erickson"
+date: "June 16, 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(sf)
+library(tidyverse)
+library(stars)
+```
+
+
+#Introduction  
+This is an exploration into wetlands on the Ksanka Ranger District in Northwest Montana. We will use a basline layer (Fish and Wildlife Service Wetland Mapper) as the target response and remote sensing grids as predictors. Within the response we will only target "Freshwater Forested/Shrub Wetland", "Freshwater Pond" and "Freshwater Emergent Wetland." We will then train the data using a multinomial Random Forest algorithm. Below is the workflow to get from pre-processing to model building.
+
+Bring in polygons from the sample space and wetland mapper.
+
+```{r}
+
+#point to some folders
+hydro_folder <- "D:/documents/Documents/Josh/Documents/GIS/District_H20_exports/Hydro"
+soils_folder <- "D:/documents/Documents/Josh/Documents/GIS/District_H20_exports/Soils"
+lands_folder <- "D:/documents/Documents/Josh/Documents/GIS/District_H20_exports/Lands_District_stuff"
+DEM_folder <- "D:/documents/Documents/Josh/Documents/GIS/District_H20_exports/DEM_Rasters"
+HWpred_folder <- "D:/Rcodes/Water_Prediction/Hird_Water_Prediction/waterD/waterPred/Final_workflow"
+
+#sample space is the ranger district
+
+district_boundary <- read_sf(paste0(lands_folder, "/district_bdy.shp")) %>%  st_transform(., proj_crs) %>% filter(., DISTRICT_N %in%  c("Fortine", "Rexford")) %>% select(OBJECTID)
+
+district_boundary <- st_union(district_boundary)
+
+district_boundary <- st_as_sf(district_boundary)
+
+
+#these are the wetlands within the ranger district
+
+wetland_HUC_17010106 <- read_sf(dsn = "HU8_17010106_watershed/HU8_17010106_Watershed/HU8_17010106_wetlands.shp")  %>%  st_transform(., proj_crs)%>% st_intersection(., district_boundary)
+
+wetland_HUC_17010210 <- read_sf(dsn = "HU8_17010210_watershed/HU8_17010210_Watershed/HU8_17010210_wetlands.shp")  %>%  st_transform(., proj_crs)
+
+wetland_HUC_17010101 <- read_sf(dsn = "HU8_17010101_watershed/HU8_17010101_wetlands.shp")  %>%  st_transform(., proj_crs)
+
+
+#here we combined the wetlands into one df
+
+wetland_combine <- rbind(wetland_HUC_17010101, wetland_HUC_17010106, wetland_HUC_17010210) %>% filter(WETLAND_TY %in% c("Freshwater Forested/Shrub Wetland", "Freshwater Pond", "Freshwater Emergent Wetland"))
+
+
+#now filter out the 'test' watershed 'Sunday Creek' and intersect with sample space
+
+dist_wo_Sunday <- st_as_sf(nhdPlushr$WBDHU12)  %>% filter(Name != "Sunday Creek") %>% st_intersection(., district_boundary) %>% st_union(.)
+
+wetlands_eureka <- st_intersection(wetland_combine, dist_wo_Sunday)
+
+#now get Sunday by itself
+dist_with_Sunday <- st_as_sf(nhdPlushr$WBDHU12)  %>% filter(Name == "Sunday Creek")
+
+#then grab the wetland data
+
+wetlands_sunday <- st_intersection(wetland_combine, dist_with_Sunday)
+ggplot() + geom_sf(data=wetlands_sunday, aes(fill = WETLAND_TY))
+mapview::mapview(wetlands_sunday[2])
+```
+
+```{r}
+#plot to make sure it looks right
+
+plot(st_sample(HUC12_eureka, 1000));plot(district_boundary, add = TRUE)
+
+#good we don't have any points in the Sunday Creek watershed
+
+# now plot the wetlands
+
+plot(wetlands_eureka[1])
+
+```
+
+Next step would be to add the points at random onto the sample space. This will allow us to randomly extract predictor values randomly.
+
+```{r}
+wetland_points <- st_sample(wetlands_eureka, 5000, "random") %>% st_as_sf(.)
+
+land_points <- st_sample(dist_wo_Sunday, 5000, "random") %>% st_as_sf(.)
+
+sample_points <- rbind(land_points, wetland_points) %>% mutate(id = row_number())
+
+#now intersect with wetland data
+
+wetland_pts <- st_intersection(wetlands_eureka, sample_points)
+
+#then get the other points by id
+
+land_pts <- anti_join(sample_points %>% as.data.frame(), wetland_pts %>% as.data.frame(),  by = "id") %>% mutate(WETLAND_TY = "No Wetland") %>% st_sf(sf_column_name = 'x') %>% rename(geometry = "x")
+
+#now join both wetland_pts and land_pts
+
+wetland_pts <- wetland_pts[,c(2,6)]
+
+sample_pts <- rbind(wetland_pts, land_pts)
+
+sample_pts <- sample_pts %>% rename(response = "WETLAND_TY")
+
+ggplot() + geom_sf(data = sample_pts, aes(color = response))
+
+
+
+```
+
+```{r}
+sample_pts %>% count(response)
+sample_pts %>% count(response) %>% summarize(prop = paste((n/sum(n))*100, "%"), name = paste(response))
+
+#might be an issue with CV and and the 5.53% for freshwater pond
+
+
+```
+
+
+Now we can create a raster stack to be able to extract predictor values from the points.
+
+```{r}
+
+#point to some folders
+dem_folder <- "D:/Rcodes/Exploring/Cabinet/Soils/exploring_units"
+HWpred_folder <- "D:/Rcodes/Water_Prediction/Hird_Water_Prediction/waterD/waterPred/Final_workflow"
+
+```
+
+
+Read in the Rasters
+
+```{r}
+
+dem10 <- raster(paste0(dem_folder, "/dem10m.tif"))
+slope <- crop(dem10, district_boundary) 
+slope <- terrain(slope, opt = "slope", unit = "degrees")
+
+TPI <- crop(dem10, district_boundary) 
+TPI <- terrain(TPI, opt = "TPI")
+
+TRI <- crop(dem10, district_boundary) 
+TRI <- terrain(TRI, opt = "TRI")
+
+aspect <- crop(dem10, district_boundary) 
+aspect <- terrain(aspect, opt = "aspect")
+
+twi <- raster(paste0(HWpred_folder, "/twi.tif"))
+
+ndvi <- raster(paste0(HWpred_folder, "/ndviAS.tif"))
+
+ndwi <- raster(paste0(HWpred_folder, "/ndwiAS.tif"))
+
+npol <- raster(paste0(HWpred_folder, "/npol.tif"))
+
+vv <- raster(paste0(HWpred_folder, "/vvtesting.tif"))
+
+vvsd <- raster(paste0(HWpred_folder, "/vvsd.tif"))
+
+B2 <- raster(paste0(HWpred_folder, "/B2__81_930_15_19.tif"))
+
+B2 <- projectRaster(B2, vv, res = 10, crs = proj_crs, method = "ngb")
+writeRaster(B2, "b2_testing.tif", overwrite = TRUE)
+
+B3 <- raster(paste0(HWpred_folder, "/B3_81_930_15_19.tif"))
+B3 <- projectRaster(B3, vv, res = 10, crs = proj_crs, method = "ngb")
+
+B4 <- raster(paste0(HWpred_folder, "/B4_81_930_15_19.tif"))
+B4 <- projectRaster(B4, vv, res = 10, crs = proj_crs, method = "ngb")
+
+NIR <- raster(paste0(HWpred_folder, "/B8_81_930_15_19.tif"))
+NIR <- projectRaster(NIR, vv, res = 10, crs = proj_crs, method = "ngb")
+```
+
+
