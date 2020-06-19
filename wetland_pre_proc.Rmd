@@ -9,7 +9,10 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 library(sf)
 library(tidyverse)
-library(stars)
+library(raster)
+library(nhdplusTools)
+library(GGally)
+library(conflicted)
 ```
 
 
@@ -20,12 +23,15 @@ Bring in polygons from the sample space and wetland mapper.
 
 ```{r}
 
+proj_crs <- "+proj=aea +lat_1=46 +lat_2=48 +lat_0=44 +lon_0=-109.5 +x_0=600000 +y_0=0 +datum=NAD83 +units=m +no_defs +ellps=GRS80 +towgs84=0,0,0"
+
 #point to some folders
 hydro_folder <- "D:/documents/Documents/Josh/Documents/GIS/District_H20_exports/Hydro"
 soils_folder <- "D:/documents/Documents/Josh/Documents/GIS/District_H20_exports/Soils"
 lands_folder <- "D:/documents/Documents/Josh/Documents/GIS/District_H20_exports/Lands_District_stuff"
 DEM_folder <- "D:/documents/Documents/Josh/Documents/GIS/District_H20_exports/DEM_Rasters"
 HWpred_folder <- "D:/Rcodes/Water_Prediction/Hird_Water_Prediction/waterD/waterPred/Final_workflow"
+prd_folder <- "D:/Rcodes/Water_Prediction/Final_paper_water_prediction/hwstreamprediction"
 
 #sample space is the ranger district
 
@@ -51,6 +57,8 @@ wetland_combine <- rbind(wetland_HUC_17010101, wetland_HUC_17010106, wetland_HUC
 
 
 #now filter out the 'test' watershed 'Sunday Creek' and intersect with sample space
+nhdPlushr <- get_nhdplushr(prd_folder, "nhdplus.gpkg",
+layers = "WBDHU12", overwrite = TRUE, proj = "+proj=aea +lat_1=46 +lat_2=48 +lat_0=44 +lon_0=-109.5 +x_0=600000 +y_0=0 +datum=NAD83 +units=m +no_defs +ellps=GRS80 +towgs84=0,0,0")
 
 dist_wo_Sunday <- st_as_sf(nhdPlushr$WBDHU12)  %>% filter(Name != "Sunday Creek") %>% st_intersection(., district_boundary) %>% st_union(.)
 
@@ -63,13 +71,10 @@ dist_with_Sunday <- st_as_sf(nhdPlushr$WBDHU12)  %>% filter(Name == "Sunday Cree
 
 wetlands_sunday <- st_intersection(wetland_combine, dist_with_Sunday)
 ggplot() + geom_sf(data=wetlands_sunday, aes(fill = WETLAND_TY))
-mapview::mapview(wetlands_sunday[2])
+
 ```
 
 ```{r}
-#plot to make sure it looks right
-
-plot(st_sample(HUC12_eureka, 1000));plot(district_boundary, add = TRUE)
 
 #good we don't have any points in the Sunday Creek watershed
 
@@ -135,44 +140,145 @@ Read in the Rasters
 
 ```{r}
 
+#use TWI as the base raster to resample to, no reason could pick any.
+twi <- raster(paste0(HWpred_folder, "/twi.tif"))
+
 dem10 <- raster(paste0(dem_folder, "/dem10m.tif"))
 slope <- crop(dem10, district_boundary) 
 slope <- terrain(slope, opt = "slope", unit = "degrees")
+slope <- resample(slope, twi, method = "ngb")
+writeRaster(slope, "slope_wetland.tif", overwrite = TRUE)
 
 TPI <- crop(dem10, district_boundary) 
 TPI <- terrain(TPI, opt = "TPI")
+TPI <- resample(TPI, twi, method = "ngb")
+writeRaster(TPI, "TPI_wetland.tif", overwrite = TRUE)
 
 TRI <- crop(dem10, district_boundary) 
 TRI <- terrain(TRI, opt = "TRI")
+TRI <- resample(TRI, twi, method = "ngb")
+writeRaster(TRI, "TRI_wetland.tif", overwrite = TRUE)
+
 
 aspect <- crop(dem10, district_boundary) 
 aspect <- terrain(aspect, opt = "aspect")
-
-twi <- raster(paste0(HWpred_folder, "/twi.tif"))
+aspect <- resample(aspect, twi, method = "ngb")
+writeRaster(aspect, "aspect_wetland.tif", overwrite = TRUE)
 
 ndvi <- raster(paste0(HWpred_folder, "/ndviAS.tif"))
+ndvi <- resample(ndvi, twi, method = "ngb")
+writeRaster(ndvi, "ndvi_wetland.tif", overwrite = TRUE)
 
 ndwi <- raster(paste0(HWpred_folder, "/ndwiAS.tif"))
+ndwi <- resample(ndwi, twi, method = "ngb")
+writeRaster(ndwi, "ndwi_wetland.tif", overwrite = TRUE)
 
 npol <- raster(paste0(HWpred_folder, "/npol.tif"))
+npol <- resample(npol, twi, method = "ngb")
+writeRaster(npol, "npol_wetland.tif", overwrite = TRUE)
 
 vv <- raster(paste0(HWpred_folder, "/vvtesting.tif"))
+vv <- resample(vv, twi, method = "ngb")
+writeRaster(vv, "vv_wetland.tif", overwrite = TRUE)
 
 vvsd <- raster(paste0(HWpred_folder, "/vvsd.tif"))
+vvsd <- resample(vvsd, twi, method = "ngb")
+writeRaster(vvsd, "vvsd_wetland.tif", overwrite = TRUE)
 
 B2 <- raster(paste0(HWpred_folder, "/B2__81_930_15_19.tif"))
-
-B2 <- projectRaster(B2, vv, res = 10, crs = proj_crs, method = "ngb")
+dist_longlat <- st_transform(district_boundary, crs = "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0")
+B2 <- crop(B2, dist_longlat) 
+B2 <- projectRaster(B2, twi, res = 10, crs = proj_crs, method = "ngb")
 writeRaster(B2, "b2_testing.tif", overwrite = TRUE)
 
 B3 <- raster(paste0(HWpred_folder, "/B3_81_930_15_19.tif"))
-B3 <- projectRaster(B3, vv, res = 10, crs = proj_crs, method = "ngb")
+B3 <- crop(B3, dist_longlat) 
+B3 <- projectRaster(B3, twi, res = 10, crs = proj_crs, method = "ngb")
+writeRaster(B3, "b3_testing.tif", overwrite = TRUE)
 
 B4 <- raster(paste0(HWpred_folder, "/B4_81_930_15_19.tif"))
-B4 <- projectRaster(B4, vv, res = 10, crs = proj_crs, method = "ngb")
+B4 <- crop(B4, dist_longlat) 
+B4 <- projectRaster(B4, twi, res = 10, crs = proj_crs, method = "ngb")
+writeRaster(B4, "b4_testing.tif", overwrite = TRUE)
 
 NIR <- raster(paste0(HWpred_folder, "/B8_81_930_15_19.tif"))
-NIR <- projectRaster(NIR, vv, res = 10, crs = proj_crs, method = "ngb")
+NIR <- crop(NIR, dist_longlat) 
+NIR <- projectRaster(NIR, twi, res = 10, crs = proj_crs, method = "ngb")
+writeRaster(NIR, "NIR_testing.tif", overwrite = TRUE)
 ```
 
+Take the rasters and make a stack.
+
+```{r}
+
+wetland_stack <- stack(NIR, B4, B3, B2, vvsd, vv, npol, ndwi, ndvi, TPI, TRI, twi, slope, aspect)
+```
+
+
+
+Now we need to extract the values from the raster stack
+
+
+```{r}
+
+data <- extract(wetland_stack,sample_pts)
+
+data <- data.frame(cbind(data, sample_pts$response))
+
+#now create an SF data frame for visualizing
+
+dataSF <- data.frame(data, sample_pts)
+
+dataSF <- dataSF %>% select(-c("V15", "id"))
+
+```
+
+Before we move on let's rename some of the columns and clean up the dataframe.
+
+```{r}
+data <- data %>% rename(NIR = "B8_81_930_15_19", Red = "B4_81_930_15_19", Green = "B3_81_930_15_19", Blue = "B2__81_930_15_19", response = "V15") %>% select(response, everything()) %>% mutate(across(-response, as.numeric))%>% na.omit()
+
+dataSF <- dataSF %>% rename(NIR = "B8_81_930_15_19", Red = "B4_81_930_15_19", Green = "B3_81_930_15_19", Blue = "B2__81_930_15_19") %>% select(response, everything()) %>% mutate(across(-c("response","geometry"), as.numeric)) %>% mutate(response = as.factor(response)) %>% na.omit()
+
+dataSF <- dataSF %>% na.omit()
+```
+
+```{r}
+data_cor <- data %>% select(-response) %>% cor(.)
+data_cor
+corrplot::corrplot(data_cor, "ellipse")
+
+# or 
+
+ggcorr(data[2:15]) + coord_flip()
+```
+
+Now look at the distributions
+
+```{r}
+data %>% pivot_longer(cols = -response, names_to = "rasters") %>% ggplot() + geom_density(aes(value, ..density..), adjust = 5) + scale_y_continuous(labels = scales::comma) + facet_wrap(~rasters, scales = "free_y")
+```
+
+Blue, Green, Red and NIR look like they have some long tails so we can check them out as well.
+
+```{r, message=FALSE}
+data %>% select(response, Blue, Green, Red, NIR) %>% pivot_longer(cols = -response, names_to = "rasters") %>% ggplot() + geom_boxplot(aes(value)) + facet_wrap(~rasters, scales = "free_x") + coord_flip()
+```
+
+Actually doesn't look too bad. We can also take a look at a `pairs` plot and see if the predictors have some relationships with the response in a multvariate fashion by coloring the response. 
+
+```{r, message=FALSE}
+
+#all the *terrain* type variables
+data %>% sample_n(1000) %>%  ggpairs(aes(color = response), columns = c(1,11:15),
+upper = list(continuous = wrap("density", alpha = 0.5, size = 1.5)),
+lower = list(continuous = wrap("points", alpha = 0.3))
+)
+
+data %>% sample_n(1000) %>%  ggpairs(aes(color = response), columns = 1:10,
+upper = list(continuous = wrap("density", alpha = 0.5, size = 1.5)),
+lower = list(continuous = wrap("points", alpha = 0.3))
+)
+
+```
 
