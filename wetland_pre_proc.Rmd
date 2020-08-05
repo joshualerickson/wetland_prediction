@@ -24,27 +24,59 @@ Bring in polygons from the sample space and wetland mapper.
 ```{r}
 
 proj_crs <- "+proj=aea +lat_1=46 +lat_2=48 +lat_0=44 +lon_0=-109.5 +x_0=600000 +y_0=0 +datum=NAD83 +units=m +no_defs +ellps=GRS80 +towgs84=0,0,0"
+lands <- "D:/R_folder/Shapes/Lands"
+hydro <- "D:/R_folder/Shapes/Hydro"
+roads <-  "D:/R_folder/Shapes/Roads"
+soils <-  "D:/R_folder/Shapes/Soils"
+geology <-  "D:/R_folder/Shapes/Geology"
+raster_com <- "D:/R_folder/Rasters/common"
+dem_folder <- "D:/R_folder/Rasters/DEM_Rasters"
 
-#point to some folders
-hydro_folder <- "D:/documents/Documents/Josh/Documents/GIS/District_H20_exports/Hydro"
-soils_folder <- "D:/documents/Documents/Josh/Documents/GIS/District_H20_exports/Soils"
-lands_folder <- "D:/documents/Documents/Josh/Documents/GIS/District_H20_exports/Lands_District_stuff"
-DEM_folder <- "D:/documents/Documents/Josh/Documents/GIS/District_H20_exports/DEM_Rasters"
-HWpred_folder <- "D:/Rcodes/Water_Prediction/Hird_Water_Prediction/waterD/waterPred/Final_workflow"
-prd_folder <- "D:/Rcodes/Water_Prediction/Final_paper_water_prediction/hwstreamprediction"
+#### get frequently used rasters and shapes #####
+
+##### shapes ######
+
+district_boundary <- read_sf(paste0(lands, "/district_boundary.shp"))
+
+districts <- read_sf(paste0(lands, "/district_bdy.shp")) 
+
+district_wetland <- read_sf(paste0(hydro, "/district_wetland.shp"))
+
+district_HUC10 <- read_sf(paste0(hydro, "/district_HUC12.shp"))
+
+district_HUC12 <- read_sf(paste0(hydro, "/district_HUC12.shp"))
+
+district_HUC14 <- read_sf(paste0(hydro, "/district_HUC14.shp"))
+
+district_nhdFlowline <- read_sf(paste0(hydro, "/district_nhdFlowline.shp"))
+
+district_catchments <- read_sf(paste0(hydro, "/district_catchments.shp"))
+
+ownership <- read_sf(paste0(lands, "/KNF_ownership.shp"))
+
+district_FS_only <- read_sf(paste0(lands, "/district_FS_only.shp"))
+
+district_past_harvest <- read_sf(paste0(lands, "/pastharvestd1d3_11042019.shp"))
+
+roads_infra <- read_sf(paste0(roads, "/RoadSystem_true.shp"))
+
+district_geo <- read_sf(paste0(soils, "/GeoD1D3.shp"))
+
+district_geo_kal <- read_sf(paste0(soils, "/kal250_reproj_D1D3.shp"))
+
+district_soils <- read_sf(paste0(soils, "/landtype_D1_D3.shp"))
+
+district_roads <- read_sf(paste0(roads, "/RoadSystem_true.shp"))
+```
+
+
+```{r}
 
 #sample space is the ranger district
 
-district_boundary <- read_sf(paste0(lands_folder, "/district_bdy.shp")) %>%  st_transform(., proj_crs) %>% filter(., DISTRICT_N %in%  c("Fortine", "Rexford")) %>% select(OBJECTID)
-
-district_boundary <- st_union(district_boundary)
-
-district_boundary <- st_as_sf(district_boundary)
-
-
 #these are the wetlands within the ranger district
 
-wetland_HUC_17010106 <- read_sf(dsn = "HU8_17010106_watershed/HU8_17010106_Watershed/HU8_17010106_wetlands.shp")  %>%  st_transform(., proj_crs)%>% st_intersection(., district_boundary)
+wetland_HUC_17010106 <- read_sf(dsn = "HU8_17010106_watershed/HU8_17010106_Watershed/HU8_17010106_wetlands.shp")  %>%  st_transform(., proj_crs)%>% st_intersection(., district_boundary) %>% select(1:5)
 
 wetland_HUC_17010210 <- read_sf(dsn = "HU8_17010210_watershed/HU8_17010210_Watershed/HU8_17010210_wetlands.shp")  %>%  st_transform(., proj_crs)
 
@@ -55,23 +87,23 @@ wetland_HUC_17010101 <- read_sf(dsn = "HU8_17010101_watershed/HU8_17010101_wetla
 
 wetland_combine <- rbind(wetland_HUC_17010101, wetland_HUC_17010106, wetland_HUC_17010210) %>% filter(WETLAND_TY %in% c("Freshwater Forested/Shrub Wetland", "Freshwater Pond", "Freshwater Emergent Wetland"))
 
+#to make sure we include the "rivers,streams" for sampling
+wetland_combine_all <- rbind(wetland_HUC_17010101, wetland_HUC_17010106, wetland_HUC_17010210) 
 
 #now filter out the 'test' watershed 'Sunday Creek' and intersect with sample space
-nhdPlushr <- get_nhdplushr(prd_folder, "nhdplus.gpkg",
-layers = "WBDHU12", overwrite = TRUE, proj = "+proj=aea +lat_1=46 +lat_2=48 +lat_0=44 +lon_0=-109.5 +x_0=600000 +y_0=0 +datum=NAD83 +units=m +no_defs +ellps=GRS80 +towgs84=0,0,0")
 
-dist_wo_Sunday <- st_as_sf(nhdPlushr$WBDHU12)  %>% filter(Name != "Sunday Creek") %>% st_intersection(., district_boundary) %>% st_union(.)
+dist_wo_Sunday <- district_HUC12 %>% filter(Name != "Sunday Creek") %>% st_union(.)
 
 wetlands_eureka <- st_intersection(wetland_combine, dist_wo_Sunday)
 
+wetlands_eureka_all <- st_intersection(wetland_combine_all, dist_wo_Sunday)
+
 #now get Sunday by itself
-dist_with_Sunday <- st_as_sf(nhdPlushr$WBDHU12)  %>% filter(Name == "Sunday Creek")
+dist_with_Sunday <- district_HUC12  %>% filter(Name == "Sunday Creek")
 
 #then grab the wetland data
 
 wetlands_sunday <- st_intersection(wetland_combine, dist_with_Sunday)
-ggplot() + geom_sf(data=wetlands_sunday, aes(fill = WETLAND_TY))
-
 ```
 
 ```{r}
@@ -84,42 +116,54 @@ plot(wetlands_eureka[1])
 
 ```
 
-Next step would be to add the points at random onto the sample space. This will allow us to randomly extract predictor values randomly.
+Next step would be to add the points at random onto the sample space. This will allow us to randomly extract predictor values.
 
 ```{r}
+
+#sample points from the 'wetlands' target variables
 wetland_points <- st_sample(wetlands_eureka, 5000, "random") %>% st_as_sf(.)
 
-land_points <- st_sample(dist_wo_Sunday, 5000, "random") %>% st_as_sf(.)
+#now just sample across the land
+land_points <- st_sample(dist_wo_Sunday, 5000, "random") %>% st_as_sf(.) 
 
+#combine into one sf data.frame
 sample_points <- rbind(land_points, wetland_points) %>% mutate(id = row_number())
 
 #now intersect with wetland data
+#this is where we want to find out whether the 'sampled' land points
+#intersect 'rivers and streams'. We don't want these values
+#to confound the model learning.
 
-wetland_pts <- st_intersection(wetlands_eureka, sample_points)
+data <- sample_points %>% mutate(on_land = lengths(st_within(sample_points,wetlands_eureka_all)))
 
-#then get the other points by id
+#this just identifies the response as either "land" or "wetland" essentially.
+data <- data %>% mutate(id = row_number(), response = ifelse(on_land == 1, "Wetland", "No Wetland"))
 
-land_pts <- anti_join(sample_points %>% as.data.frame(), wetland_pts %>% as.data.frame(),  by = "id") %>% mutate(WETLAND_TY = "No Wetland") %>% st_sf(sf_column_name = 'x') %>% rename(geometry = "x")
+#however, we have three types of wetlands so we need to intersect with
+# the original wetland polygon to get a wetland 'type' to then join with the 'data'
+wetland_types <- data %>% filter(response == "Wetland") %>% st_intersection(wetland_combine_all)
 
-#now join both wetland_pts and land_pts
+#now join back to data
 
-wetland_pts <- wetland_pts[,c(2,6)]
+data_final <- st_join(data, wetland_types["WETLAND_TY"]) %>% rename(response_type = "WETLAND_TY") %>% mutate(response = ifelse(is.na(response_type), paste0("No Wetland"),response_type))
 
-sample_pts <- rbind(wetland_pts, land_pts)
+#check to make sure it looks good, need to take out 'lake' and 'riverine'
+data_final %>% st_drop_geometry() %>% count(response, sort = TRUE)
 
-sample_pts <- sample_pts %>% rename(response = "WETLAND_TY")
+data_final <- data_final %>% filter(!response %in% c("Lake", "Riverine"))
 
-ggplot() + geom_sf(data = sample_pts, aes(color = response))
+#now check for how many 'land' points.
+nrow(data_final) - nrow(data_final[data_final$response == "No Wetland",])
 
-
-
+#looks good 5059, no need to downsample.
 ```
 
+Now just look over the data. This is essentially double checking but also exploring some possible issues. 
 ```{r}
-sample_pts %>% count(response)
-sample_pts %>% count(response) %>% summarize(prop = paste((n/sum(n))*100, "%"), name = paste(response))
+data_final %>% st_drop_geometry() %>% count(response)
+data_final %>% st_drop_geometry() %>% count(response) %>% summarize(prop = paste(round((n/sum(n))*100, 2), "%"), name = paste(response))
 
-#might be an issue with CV and and the 5.53% for freshwater pond
+#might be an issue with CV and and the 5.36% for freshwater pond
 
 
 ```
@@ -127,84 +171,89 @@ sample_pts %>% count(response) %>% summarize(prop = paste((n/sum(n))*100, "%"), 
 
 Now we can create a raster stack to be able to extract predictor values from the points.
 
-```{r}
-
-#point to some folders
-dem_folder <- "D:/Rcodes/Exploring/Cabinet/Soils/exploring_units"
-HWpred_folder <- "D:/Rcodes/Water_Prediction/Hird_Water_Prediction/waterD/waterPred/Final_workflow"
-
-```
-
 
 Read in the Rasters
 
 ```{r}
 
 #use TWI as the base raster to resample to, no reason could pick any.
-twi <- raster(paste0(HWpred_folder, "/twi.tif"))
+twi <- raster(paste0(raster_com, "/twi.tif"))
 
-dem10 <- raster(paste0(dem_folder, "/dem10m.tif"))
+dem10 <- raster(paste0(raster_com, "/dem10m.tif"))
 slope <- crop(dem10, district_boundary) 
 slope <- terrain(slope, opt = "slope", unit = "degrees")
 slope <- resample(slope, twi, method = "ngb")
 writeRaster(slope, "slope_wetland.tif", overwrite = TRUE)
+slope <- raster("slope_wetland.tif")
 
 TPI <- crop(dem10, district_boundary) 
 TPI <- terrain(TPI, opt = "TPI")
 TPI <- resample(TPI, twi, method = "ngb")
 writeRaster(TPI, "TPI_wetland.tif", overwrite = TRUE)
+TPI <- raster("TPI_wetland.tif")
 
 TRI <- crop(dem10, district_boundary) 
 TRI <- terrain(TRI, opt = "TRI")
 TRI <- resample(TRI, twi, method = "ngb")
 writeRaster(TRI, "TRI_wetland.tif", overwrite = TRUE)
-
+TRI <- raster("TRI_wetland.tif")
 
 aspect <- crop(dem10, district_boundary) 
 aspect <- terrain(aspect, opt = "aspect")
 aspect <- resample(aspect, twi, method = "ngb")
 writeRaster(aspect, "aspect_wetland.tif", overwrite = TRUE)
+aspect <- raster("aspect_wetland.tif")
+
 
 ndvi <- raster(paste0(HWpred_folder, "/ndviAS.tif"))
 ndvi <- resample(ndvi, twi, method = "ngb")
 writeRaster(ndvi, "ndvi_wetland.tif", overwrite = TRUE)
+ndvi <- raster("ndvi_wetland.tif")
 
 ndwi <- raster(paste0(HWpred_folder, "/ndwiAS.tif"))
 ndwi <- resample(ndwi, twi, method = "ngb")
 writeRaster(ndwi, "ndwi_wetland.tif", overwrite = TRUE)
+ndwi <- raster("ndwi_wetland.tif")
 
 npol <- raster(paste0(HWpred_folder, "/npol.tif"))
 npol <- resample(npol, twi, method = "ngb")
 writeRaster(npol, "npol_wetland.tif", overwrite = TRUE)
+npol <- raster("npol_wetland.tif")
 
 vv <- raster(paste0(HWpred_folder, "/vvtesting.tif"))
 vv <- resample(vv, twi, method = "ngb")
 writeRaster(vv, "vv_wetland.tif", overwrite = TRUE)
+vv <- raster("vv_wetland.tif")
 
 vvsd <- raster(paste0(HWpred_folder, "/vvsd.tif"))
 vvsd <- resample(vvsd, twi, method = "ngb")
 writeRaster(vvsd, "vvsd_wetland.tif", overwrite = TRUE)
+vvsd <- raster("vvsd_wetland.tif")
 
 B2 <- raster(paste0(HWpred_folder, "/B2__81_930_15_19.tif"))
 dist_longlat <- st_transform(district_boundary, crs = "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0")
 B2 <- crop(B2, dist_longlat) 
 B2 <- projectRaster(B2, twi, res = 10, crs = proj_crs, method = "ngb")
 writeRaster(B2, "b2_testing.tif", overwrite = TRUE)
+B2 <- raster("b2_testing.tif")
 
 B3 <- raster(paste0(HWpred_folder, "/B3_81_930_15_19.tif"))
 B3 <- crop(B3, dist_longlat) 
 B3 <- projectRaster(B3, twi, res = 10, crs = proj_crs, method = "ngb")
 writeRaster(B3, "b3_testing.tif", overwrite = TRUE)
+B3 <- raster("b3_testing.tif")
 
 B4 <- raster(paste0(HWpred_folder, "/B4_81_930_15_19.tif"))
 B4 <- crop(B4, dist_longlat) 
 B4 <- projectRaster(B4, twi, res = 10, crs = proj_crs, method = "ngb")
 writeRaster(B4, "b4_testing.tif", overwrite = TRUE)
+B4 <- raster("b4_testing.tif")
 
 NIR <- raster(paste0(HWpred_folder, "/B8_81_930_15_19.tif"))
 NIR <- crop(NIR, dist_longlat) 
 NIR <- projectRaster(NIR, twi, res = 10, crs = proj_crs, method = "ngb")
 writeRaster(NIR, "NIR_testing.tif", overwrite = TRUE)
+NIR <- raster("NIR_testing.tif")
 ```
 
 Take the rasters and make a stack.
@@ -214,35 +263,29 @@ Take the rasters and make a stack.
 wetland_stack <- stack(NIR, B4, B3, B2, vvsd, vv, npol, ndwi, ndvi, TPI, TRI, twi, slope, aspect)
 ```
 
-
-
-Now we need to extract the values from the raster stack
-
+Now we need to extract `data_final` fromt the raster stack.
 
 ```{r}
 
-data <- extract(wetland_stack,sample_pts)
 
-data <- data.frame(cbind(data, sample_pts$response))
+data <- extract(wetland_stack,data_final)
+
+data <- cbind.data.frame(data, response = data_final$response)
+
+#omit any NA's 
+data <- na.omit(data)
 
 #now create an SF data frame for visualizing
 
-dataSF <- data.frame(data, sample_pts)
+dataSF <- data.frame(data, data_final)
 
-dataSF <- dataSF %>% select(-c("V15", "id"))
+dataSF <- dataSF %>% select(-id, -on_land, -response.1, -response_type)
+
 
 ```
 
-Before we move on let's rename some of the columns and clean up the dataframe.
 
-```{r}
-data <- data %>% rename(NIR = "B8_81_930_15_19", Red = "B4_81_930_15_19", Green = "B3_81_930_15_19", Blue = "B2__81_930_15_19", response = "V15") %>% select(response, everything()) %>% mutate(across(-response, as.numeric))%>% na.omit()
-
-dataSF <- dataSF %>% rename(NIR = "B8_81_930_15_19", Red = "B4_81_930_15_19", Green = "B3_81_930_15_19", Blue = "B2__81_930_15_19") %>% select(response, everything()) %>% mutate(across(-c("response","geometry"), as.numeric)) %>% mutate(response = as.factor(response)) %>% na.omit()
-
-dataSF <- dataSF %>% na.omit()
-```
-
+Now look at some correlation stats.
 ```{r}
 data_cor <- data %>% select(-response) %>% cor(.)
 data_cor
@@ -250,22 +293,53 @@ corrplot::corrplot(data_cor, "ellipse")
 
 # or 
 
-ggcorr(data[2:15]) + coord_flip()
+ggcorr(data[2:15], label = TRUE, hjust = 1, layout.exp = 5) 
 ```
 
 Now look at the distributions
 
 ```{r}
-data %>% pivot_longer(cols = -response, names_to = "rasters") %>% ggplot() + geom_density(aes(value, ..density..), adjust = 5) + scale_y_continuous(labels = scales::comma) + facet_wrap(~rasters, scales = "free_y")
+data %>% pivot_longer(cols = -response, names_to = "rasters") %>% ggplot() + geom_freqpoly(aes(value))+ facet_wrap(~rasters, scales = "free_x", nrow = 2)
 ```
 
-Blue, Green, Red and NIR look like they have some long tails so we can check them out as well.
+Blue, Green, Red and NIR look like they have some long tails so we can check them out as well. The data will naturally have long tails given the remote sensing outliers. So let's try again but this time we'll just remove the lower and upper 1%.
 
+```{r}
+remove_outliers <- function(x, na.rm = TRUE, ...) 
+  {
+  qnt <- quantile(x, probs=c(.01, .99), na.rm = na.rm, ...)
+  y <- x
+  y[x < qnt[1]] <- NA
+  y[x > qnt[2]] <- NA
+  y
+}
+data %>% group_by(response) %>% summarise(across(is.numeric, quantile, probs = c(0.01, 0.99)))
+
+data %>% mutate(across(is.numeric, remove_outliers)) %>% pivot_longer(cols = -response, names_to = "rasters")  %>% ggplot() + geom_freqpoly(aes(value))+ facet_wrap(~rasters, scales = "free_x", nrow = 2)
+
+```
+
+Ok, that's cool but the outliers are important so it's always good to have.
 ```{r, message=FALSE}
-data %>% select(response, Blue, Green, Red, NIR) %>% pivot_longer(cols = -response, names_to = "rasters") %>% ggplot() + geom_boxplot(aes(value)) + facet_wrap(~rasters, scales = "free_x") + coord_flip()
+data %>% select(response, b2_testing, b3_testing, b4_testing, NIR_testing) %>% pivot_longer(cols = -response, names_to = "rasters") %>% ggplot() + geom_boxplot(aes(value)) + facet_wrap(~rasters, scales = "free_y") + coord_flip()
 ```
 
-Actually doesn't look too bad. We can also take a look at a `pairs` plot and see if the predictors have some relationships with the response in a multvariate fashion by coloring the response. 
+
+
+Actually doesn't look too bad. Let's see how this looks with the response variables as colors. 
+
+```{r}
+data %>% select(response, b2_testing, b3_testing, b4_testing, NIR_testing) %>% pivot_longer(cols = -response, names_to = "rasters") %>% ggplot() + geom_boxplot(aes(value, color = response)) + facet_wrap(~rasters, scales = "free_x") + coord_flip()
+```
+
+Now with all the data. 
+
+```{r}
+data %>% pivot_longer(cols = -response, names_to = "rasters") %>% ggplot() + geom_boxplot(aes(value, color = response)) + facet_wrap(~rasters, scales = "free_y") + coord_flip() + theme(axis.text.x = element_blank()) 
+```
+
+
+We can also take a look at a `pairs` plot. 
 
 ```{r, message=FALSE}
 
@@ -275,10 +349,37 @@ upper = list(continuous = wrap("density", alpha = 0.5, size = 1.5)),
 lower = list(continuous = wrap("points", alpha = 0.3))
 )
 
-data %>% sample_n(1000) %>%  ggpairs(aes(color = response), columns = 1:10,
+#all the climate data
+data %>% sample_n(1000) %>%  ggpairs(aes(color = response), columns = c(15,1:10),
 upper = list(continuous = wrap("density", alpha = 0.5, size = 1.5)),
 lower = list(continuous = wrap("points", alpha = 0.3))
 )
+
+```
+
+Now we can run the model and see what we get.
+
+```{r}
+
+library(caret)
+library(CAST)
+
+#need to extract spatial indices
+
+levels(data$response) <- c("X3", "X2", "X1", "X0")
+set.seed(123)
+rf_wetland <- train(response~., data = data,
+              method = "rf", importance = TRUE,
+                 metric = "AUC",
+                  trControl = trainControl(method = "repeatedcv",
+                                           repeats = 5,
+                                           classProbs = TRUE,
+                                           savePredictions = 'all',
+                                           summaryFunction = multiClassSummary))
+rf_wetland$finalModel$confusion
+wetlands <- raster::predict(wetland_stack, rf_wetland)
+writeRaster(wetlands,"wetlands.tif", overwrite = TRUE)
+plot(wetlands)
 
 ```
 
